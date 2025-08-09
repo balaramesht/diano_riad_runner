@@ -12,6 +12,7 @@ class SoundManager:
 
     Prefers files in `sounds/` if present; otherwise synthesizes simple tones.
     Manages dedicated channels for background music and the running loop.
+    Provides master and per-sound volume control and muting.
     """
 
     def __init__(self) -> None:
@@ -20,13 +21,29 @@ class SoundManager:
             pygame.mixer.init(frequency=22050, size=-16, channels=1, buffer=512)
         freq, _fmt, _channels = pygame.mixer.get_init()
         self.sample_rate: int = freq or 22050
+        # Master/per-sound volume controls
+        self.master_volume: float = 0.25  # subtle by default
+        self.per_volume: Dict[str, float] = {
+            # Keep continuous/ambient sounds at 0 by default to avoid annoyance
+            "run": 0.0,
+            "music": 0.0,
+            # Action sounds
+            "jump": 0.5,
+            "land": 0.55,
+            "duck": 0.35,
+            "spawn": 0.0,        # off by default
+            "milestone": 0.35,
+            "game_over": 0.6,
+            "restart": 0.35,
+        }
+        self.muted: bool = False
 
         # Channels
         pygame.mixer.set_num_channels(max(8, pygame.mixer.get_num_channels()))
         self.channel_run = pygame.mixer.Channel(0)
         self.channel_music = pygame.mixer.Channel(1)
-        self.channel_run.set_volume(0.18)
-        self.channel_music.set_volume(0.12)
+        self.channel_run.set_volume(self.master_volume * self.per_volume.get("run", 0.0))
+        self.channel_music.set_volume(self.master_volume * self.per_volume.get("music", 0.0))
 
         self.sounds: Dict[str, pygame.mixer.Sound] = {}
         self._load_or_synthesize_sounds()
@@ -35,8 +52,14 @@ class SoundManager:
     # Public API
     # -----------------------------
     def start_run_loop(self) -> None:
+        # Disabled by default via per_volume; respect mute and volume
+        if self.muted:
+            return
+        if self.per_volume.get("run", 0.0) <= 0.0:
+            return
         snd = self.sounds.get("run")
         if snd and not self.channel_run.get_busy():
+            self.channel_run.set_volume(self.master_volume * self.per_volume.get("run", 0.0))
             self.channel_run.play(snd, loops=-1)
 
     def stop_run_loop(self) -> None:
@@ -44,8 +67,14 @@ class SoundManager:
             self.channel_run.stop()
 
     def start_music(self) -> None:
+        # Disabled by default via per_volume; respect mute and volume
+        if self.muted:
+            return
+        if self.per_volume.get("music", 0.0) <= 0.0:
+            return
         snd = self.sounds.get("music")
         if snd and not self.channel_music.get_busy():
+            self.channel_music.set_volume(self.master_volume * self.per_volume.get("music", 0.0))
             self.channel_music.play(snd, loops=-1)
 
     def stop_music(self) -> None:
@@ -53,9 +82,35 @@ class SoundManager:
             self.channel_music.stop()
 
     def play(self, name: str) -> None:
+        if self.muted:
+            return
+        base = self.per_volume.get(name, 0.0)
+        if base <= 0.0:
+            return
         snd = self.sounds.get(name)
         if snd is not None:
+            snd.set_volume(self.master_volume * base)
             snd.play()
+
+    def set_master_volume(self, volume: float) -> None:
+        self.master_volume = max(0.0, min(1.0, volume))
+        # Update channel volumes for loops
+        self.channel_run.set_volume(self.master_volume * self.per_volume.get("run", 0.0))
+        self.channel_music.set_volume(self.master_volume * self.per_volume.get("music", 0.0))
+
+    def adjust_master_volume(self, delta: float) -> None:
+        self.set_master_volume(self.master_volume + delta)
+
+    def toggle_mute(self) -> None:
+        self.muted = not self.muted
+        if self.muted:
+            # Silence channels immediately
+            self.channel_run.set_volume(0.0)
+            self.channel_music.set_volume(0.0)
+        else:
+            # Restore loop volumes if playing
+            self.channel_run.set_volume(self.master_volume * self.per_volume.get("run", 0.0))
+            self.channel_music.set_volume(self.master_volume * self.per_volume.get("music", 0.0))
 
     # -----------------------------
     # Loading and synthesis
@@ -177,9 +232,9 @@ class SoundManager:
     # -----------------------------
     def _synth_footstep(self) -> array:
         # Low thump with quick decay
-        base = self._render_sine(140.0, 0.08, volume=0.6)
-        noise = self._render_noise(0.06, volume=0.2)
-        return self._mix(base, noise, 1.0, 0.6)
+        base = self._render_sine(140.0, 0.06, volume=0.4)
+        noise = self._render_noise(0.05, volume=0.15)
+        return self._mix(base, noise, 1.0, 0.5)
 
     def _synth_footstep_loop(self) -> pygame.mixer.Sound:
         # Two footsteps per beat
@@ -190,7 +245,7 @@ class SoundManager:
         return self._to_sound(loop)
 
     def _synth_jump(self) -> pygame.mixer.Sound:
-        up = self._render_sweep(300.0, 1200.0, 0.22, volume=0.45)
+        up = self._render_sweep(280.0, 900.0, 0.16, volume=0.35)
         return self._to_sound(up)
 
     def _synth_land(self) -> pygame.mixer.Sound:
@@ -198,34 +253,34 @@ class SoundManager:
         return self._to_sound(thump)
 
     def _synth_duck(self) -> pygame.mixer.Sound:
-        down = self._render_sweep(800.0, 300.0, 0.14, volume=0.40)
+        down = self._render_sweep(700.0, 260.0, 0.10, volume=0.30)
         return self._to_sound(down)
 
     def _synth_pop(self) -> pygame.mixer.Sound:
-        pop = self._render_square(600.0, 0.05, volume=0.35)
+        pop = self._render_square(520.0, 0.04, volume=0.28)
         return self._to_sound(pop)
 
     def _synth_milestone(self) -> pygame.mixer.Sound:
-        a5 = self._render_sine(880.0, 0.08, volume=0.35)
-        d6 = self._render_sine(1174.66, 0.10, volume=0.35)
+        a5 = self._render_sine(880.0, 0.06, volume=0.25)
+        d6 = self._render_sine(1174.66, 0.08, volume=0.25)
         return self._to_sound(self._concat([a5, d6]))
 
     def _synth_game_over(self) -> pygame.mixer.Sound:
-        fall = self._render_sweep(400.0, 80.0, 0.35, volume=0.40)
-        noise = self._render_noise(0.30, volume=0.20)
+        fall = self._render_sweep(360.0, 90.0, 0.25, volume=0.30)
+        noise = self._render_noise(0.22, volume=0.15)
         mixed = self._mix(fall, noise, 1.0, 1.0)
         return self._to_sound(mixed)
 
     def _synth_restart(self) -> pygame.mixer.Sound:
-        up1 = self._render_sine(660.0, 0.06, volume=0.30)
-        up2 = self._render_sine(880.0, 0.10, volume=0.30)
+        up1 = self._render_sine(600.0, 0.05, volume=0.22)
+        up2 = self._render_sine(800.0, 0.08, volume=0.22)
         return self._to_sound(self._concat([up1, up2]))
 
     def _synth_music_loop(self) -> pygame.mixer.Sound:
-        # Simple gentle pad: low-volume layered sines for a short seamless loop
-        base = self._render_sine(220.0, 1.6, volume=0.08)
-        fifth = self._render_sine(330.0, 1.6, volume=0.06)
-        high = self._render_sine(440.0, 1.6, volume=0.04)
+        # Gentle pad, very soft
+        base = self._render_sine(220.0, 1.6, volume=0.05)
+        fifth = self._render_sine(330.0, 1.6, volume=0.04)
+        high = self._render_sine(440.0, 1.6, volume=0.03)
         pad = self._mix(self._mix(base, fifth), high)
         return self._to_sound(pad)
 
