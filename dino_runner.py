@@ -27,6 +27,8 @@ BACKGROUND_COLOR = (255, 255, 255)
 FOREGROUND_COLOR = (34, 34, 34)
 SKY_COLOR = (245, 245, 245)
 GROUND_Y = int(WINDOW_HEIGHT * 0.78)
+CACTUS_COLOR = (34, 139, 34)  # green
+CACTUS_OUTLINE = (18, 90, 18)
 
 # Dino dimensions and physics
 DINO_RUN_WIDTH = 44
@@ -168,6 +170,7 @@ class Cactus:
     def __init__(self, speed: float) -> None:
         # Randomize size similar to Chrome's small and large cacti
         kind = random.choice(["small", "large", "double", "triple"])  # adds width variance
+        self.kind = kind
         if kind == "small":
             width, height = 18, 36
         elif kind == "large":
@@ -187,7 +190,49 @@ class Cactus:
         return self.bounds.x + self.bounds.width < 0
 
     def draw(self, surface: pygame.Surface) -> None:
-        pygame.draw.rect(surface, FOREGROUND_COLOR, self.bounds.rect, border_radius=2)
+        rect = self.bounds.rect
+        # Stem parameters
+        stem_w = max(6, int(rect.width * 0.38))
+        stem_x = rect.x + (rect.width - stem_w) // 2
+        stem_h = rect.height
+        stem_rect = pygame.Rect(stem_x, rect.y, stem_w, stem_h)
+        # Arms parameters scaled to size
+        arm_w = max(4, int(stem_w * 0.7))
+        arm_h = max(8, int(rect.height * 0.38))
+        arm_y = rect.y + int(rect.height * 0.32)
+
+        # Left arm
+        left_arm_x = max(rect.x, stem_rect.left - arm_w + 2)
+        left_arm = pygame.Rect(left_arm_x, arm_y, arm_w, arm_h)
+        # Right arm
+        right_arm_x = min(rect.right - arm_w, stem_rect.right - 2)
+        right_arm = pygame.Rect(right_arm_x, arm_y, arm_w, arm_h)
+
+        # Optional extra small arms for larger kinds
+        extras = []
+        if self.kind in ("double", "triple"):
+            extra_y = arm_y + int(arm_h * 0.5)
+            extra_h = max(6, int(arm_h * 0.6))
+            extra_w = max(3, int(arm_w * 0.7))
+            # one extra on left upper
+            extras.append(pygame.Rect(left_arm.right - extra_w, extra_y - int(extra_h * 0.8), extra_w, extra_h))
+            if self.kind == "triple":
+                # one extra on right lower
+                extras.append(pygame.Rect(right_arm.left, extra_y + 2, extra_w, extra_h))
+
+        # Draw filled shapes
+        pygame.draw.rect(surface, CACTUS_COLOR, stem_rect, border_radius=6)
+        pygame.draw.rect(surface, CACTUS_COLOR, left_arm, border_radius=6)
+        pygame.draw.rect(surface, CACTUS_COLOR, right_arm, border_radius=6)
+        for r in extras:
+            pygame.draw.rect(surface, CACTUS_COLOR, r, border_radius=6)
+
+        # Outlines for clarity
+        pygame.draw.rect(surface, CACTUS_OUTLINE, stem_rect, width=2, border_radius=6)
+        pygame.draw.rect(surface, CACTUS_OUTLINE, left_arm, width=2, border_radius=6)
+        pygame.draw.rect(surface, CACTUS_OUTLINE, right_arm, width=2, border_radius=6)
+        for r in extras:
+            pygame.draw.rect(surface, CACTUS_OUTLINE, r, width=2, border_radius=6)
 
 
 class Pterodactyl:
