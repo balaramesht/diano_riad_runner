@@ -1,7 +1,13 @@
 Place your sound files here:
-- run.wav (footstep or running sound, short, can be looped)
+- run.wav (footstep or running loop)
 - jump.wav (jump sound)
-- dash.wav (dashing sound, if you add a dash action)
+- land.wav (landing thump)
+- duck.wav (duck swoosh)
+- spawn.wav (obstacle spawn pop)
+- milestone.wav (every 100 points)
+- game_over.wav (collision/game over)
+- restart.wav (restart cue)
+- music.wav (background music loop)
 
 Supported formats: .wav (recommended for pygame)
 
