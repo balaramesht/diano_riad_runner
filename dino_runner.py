@@ -118,6 +118,7 @@ class Dinosaur:
         on_ground = not self.is_jumping and not self.is_ducking
         if on_ground:
             if not self._run_sound_playing:
+                # Disabled by default via SoundManager per-volume; call is safe
                 self.sound.start_run_loop()
                 self._run_sound_playing = True
         else:
@@ -254,7 +255,7 @@ class Game:
         self.font = pygame.font.SysFont("monospace", 18, bold=True)
         self.big_font = pygame.font.SysFont("monospace", 28, bold=True)
         self.sound = SoundManager()
-        self.sound.start_music()
+        # Do not auto-start music. Users can toggle later.
         self.reset()
 
     def reset(self) -> None:
@@ -284,6 +285,7 @@ class Game:
         else:
             self.obstacles.append(Cactus(speed))
         self.spawn_distance_remaining = random.randint(MIN_SPAWN_GAP, MAX_SPAWN_GAP)
+        # Keep spawn sound off by default in SoundManager
         self.sound.play("spawn")
 
     def update(self, dt: float) -> None:
@@ -351,6 +353,20 @@ class Game:
                 if self.game_over and event.key in (pygame.K_r, pygame.K_SPACE, pygame.K_UP):
                     self.sound.play("restart")
                     self.reset()
+                # Audio controls: M to mute/unmute, +/- to adjust master volume
+                if event.key == pygame.K_m:
+                    self.sound.toggle_mute()
+                if event.key in (pygame.K_EQUALS, pygame.K_PLUS):
+                    self.sound.adjust_master_volume(+0.05)
+                if event.key in (pygame.K_MINUS, pygame.K_UNDERSCORE):
+                    self.sound.adjust_master_volume(-0.05)
+                # Toggle background music with B
+                if event.key == pygame.K_b:
+                    if self.sound.per_volume.get("music", 0.0) > 0.0:
+                        if pygame.mixer.Channel(1).get_busy():
+                            self.sound.stop_music()
+                        else:
+                            self.sound.start_music()
 
     def draw(self) -> None:
         self.surface.fill(BACKGROUND_COLOR)
@@ -389,7 +405,7 @@ class Game:
             overlay.fill((255, 255, 255, 220))
             self.surface.blit(overlay, (0, 0))
             title = self.big_font.render("GAME OVER", True, FOREGROUND_COLOR)
-            hint = self.font.render("Press R to Restart", True, FOREGROUND_COLOR)
+            hint = self.font.render("Press R to Restart (M: Mute, +/-: Volume, B: Music)", True, FOREGROUND_COLOR)
             self.surface.blit(title, (WINDOW_WIDTH // 2 - title.get_width() // 2, WINDOW_HEIGHT // 2 - 40))
             self.surface.blit(hint, (WINDOW_WIDTH // 2 - hint.get_width() // 2, WINDOW_HEIGHT // 2 + 2))
 
