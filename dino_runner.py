@@ -14,6 +14,8 @@ except Exception as exc:  # pragma: no cover
     print("This game requires pygame. Install with: pip install -r requirements.txt", file=sys.stderr)
     raise
 
+from sound_manager import SoundManager
+
 
 # -----------------------------
 # Configuration
@@ -66,7 +68,7 @@ class Rectangle:
 
 
 class Dinosaur:
-    def __init__(self) -> None:
+    def __init__(self, sound: "SoundManager") -> None:
         self.is_jumping: bool = False
         self.is_ducking: bool = False
         self.vertical_velocity: float = 0.0
@@ -79,16 +81,9 @@ class Dinosaur:
         self.frame_interval = 0.04  # seconds per frame (~25 FPS)
         self._load_frames()
         # Sound
-        self.sounds = {}
-        self._load_sounds()
+        self.sound = sound
         self._run_sound_playing = False
-
-    def _load_sounds(self):
-        sounds_dir = os.path.join(os.path.dirname(__file__), "sounds")
-        for name in ["run", "jump", "dash"]:
-            path = os.path.join(sounds_dir, f"{name}.wav")
-            if os.path.exists(path):
-                self.sounds[name] = pygame.mixer.Sound(path)
+        self._was_ducking = False
 
     def _load_frames(self):
         frames_dir = os.path.join(os.path.dirname(__file__), "dino_frames")
@@ -109,22 +104,25 @@ class Dinosaur:
             self.is_ducking = False
             self.vertical_velocity = JUMP_VELOCITY
             # Play jump sound
-            if "jump" in self.sounds:
-                self.sounds["jump"].play()
+            self.sound.play("jump")
 
     def update(self, dt: float, keys: pygame.key.ScancodeWrapper) -> None:
         # Duck only when on ground
-        self.is_ducking = bool(keys[pygame.K_DOWN]) and not self.is_jumping
+        new_duck = bool(keys[pygame.K_DOWN]) and not self.is_jumping
+        if new_duck and not self._was_ducking:
+            self.sound.play("duck")
+        self.is_ducking = new_duck
+        self._was_ducking = self.is_ducking
 
         # Play running sound if on ground and not ducking or jumping
         on_ground = not self.is_jumping and not self.is_ducking
-        if on_ground and "run" in self.sounds:
+        if on_ground:
             if not self._run_sound_playing:
-                self.sounds["run"].play(-1)  # Loop
+                self.sound.start_run_loop()
                 self._run_sound_playing = True
         else:
-            if self._run_sound_playing and "run" in self.sounds:
-                self.sounds["run"].stop()
+            if self._run_sound_playing:
+                self.sound.stop_run_loop()
                 self._run_sound_playing = False
 
         # Apply jump physics
@@ -136,6 +134,7 @@ class Dinosaur:
                 self.run_bounds.y = GROUND_Y - DINO_RUN_HEIGHT
                 self.is_jumping = False
                 self.vertical_velocity = 0.0
+                self.sound.play("land")
 
     def draw(self, surface: pygame.Surface) -> None:
         # Animate
@@ -247,16 +246,19 @@ class Cloud:
 class Game:
     def __init__(self) -> None:
         pygame.init()
-        pygame.mixer.init()
+        pygame.mixer.init(frequency=22050, size=-16, channels=1, buffer=512)
+        pygame.mixer.set_num_channels(8)
         pygame.display.set_caption("Dino Runner (Python)")
         self.surface = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("monospace", 18, bold=True)
         self.big_font = pygame.font.SysFont("monospace", 28, bold=True)
+        self.sound = SoundManager()
+        self.sound.start_music()
         self.reset()
 
     def reset(self) -> None:
-        self.dino = Dinosaur()
+        self.dino = Dinosaur(self.sound)
         self.obstacles: list[object] = []
         self.clouds: list[Cloud] = [Cloud() for _ in range(3)]
         self.spawn_distance_remaining: float = random.randint(MIN_SPAWN_GAP, MAX_SPAWN_GAP)
@@ -265,6 +267,7 @@ class Game:
         self.game_over: bool = False
         self.time_since_game_over: float = 0.0
         self.speed: float = BASE_SPEED
+        self.next_milestone: int = 100
 
     def compute_speed(self) -> float:
         target = min(BASE_SPEED + (self.score // 100) * SPEED_PER_100_SCORE, MAX_SPEED)
@@ -281,6 +284,7 @@ class Game:
         else:
             self.obstacles.append(Cactus(speed))
         self.spawn_distance_remaining = random.randint(MIN_SPAWN_GAP, MAX_SPAWN_GAP)
+        self.sound.play("spawn")
 
     def update(self, dt: float) -> None:
         keys = pygame.key.get_pressed()
@@ -296,6 +300,9 @@ class Game:
             # World speed and score
             speed = self.compute_speed()
             self.score += int(60 * dt)  # roughly +60 per second
+            if self.score >= self.next_milestone:
+                self.sound.play("milestone")
+                self.next_milestone += 100
 
             # Spawn logic progresses with distance
             self.spawn_distance_remaining -= speed * dt
@@ -327,6 +334,7 @@ class Game:
                     self.game_over = True
                     self.time_since_game_over = 0.0
                     self.high_score = max(self.high_score, self.score)
+                    self.sound.on_game_over()
                     break
         else:
             self.time_since_game_over += dt
@@ -341,6 +349,7 @@ class Game:
                     pygame.quit()
                     sys.exit(0)
                 if self.game_over and event.key in (pygame.K_r, pygame.K_SPACE, pygame.K_UP):
+                    self.sound.play("restart")
                     self.reset()
 
     def draw(self) -> None:

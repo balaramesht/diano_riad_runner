@@ -27,3 +27,7 @@ python dino_runner.py
 - Game speed increases as you score.
 - Obstacles spawn with variable sizes and spacing, similar to the Chrome dino game.
 - If running on a headless server, you may need a virtual display (e.g., xvfb) to launch Pygame windows.
+
+## Audio
+- Built-in synthesized sounds are provided for run loop, jump, land, duck, spawn, milestone, game over, restart, and background music.
+- To replace with your own audio, drop `.wav` files into `sounds/` with these names: `run.wav`, `jump.wav`, `land.wav`, `duck.wav`, `spawn.wav`, `milestone.wav`, `game_over.wav`, `restart.wav`, `music.wav`.
