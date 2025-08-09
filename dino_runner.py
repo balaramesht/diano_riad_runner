@@ -4,6 +4,9 @@ import random
 import sys
 from dataclasses import dataclass
 
+# Sound support
+import pygame.mixer
+
 # Attempt to import pygame with a helpful error if missing
 try:
     import pygame
@@ -69,6 +72,32 @@ class Dinosaur:
         self.vertical_velocity: float = 0.0
         self.run_bounds = Rectangle(DINO_X, GROUND_Y - DINO_RUN_HEIGHT, DINO_RUN_WIDTH, DINO_RUN_HEIGHT)
         self.duck_bounds = Rectangle(DINO_X, GROUND_Y - DINO_DUCK_HEIGHT, DINO_DUCK_WIDTH, DINO_DUCK_HEIGHT)
+        # Animation
+        self.frames = []
+        self.frame_idx = 0
+        self.frame_timer = 0.0
+        self.frame_interval = 0.04  # seconds per frame (~25 FPS)
+        self._load_frames()
+        # Sound
+        self.sounds = {}
+        self._load_sounds()
+        self._run_sound_playing = False
+
+    def _load_sounds(self):
+        sounds_dir = os.path.join(os.path.dirname(__file__), "sounds")
+        for name in ["run", "jump", "dash"]:
+            path = os.path.join(sounds_dir, f"{name}.wav")
+            if os.path.exists(path):
+                self.sounds[name] = pygame.mixer.Sound(path)
+
+    def _load_frames(self):
+        frames_dir = os.path.join(os.path.dirname(__file__), "dino_frames")
+        frame_files = sorted([f for f in os.listdir(frames_dir) if f.endswith('.png')])
+        for fname in frame_files:
+            img = pygame.image.load(os.path.join(frames_dir, fname)).convert_alpha()
+            self.frames.append(img)
+        if not self.frames:
+            raise RuntimeError("No dino frames found in dino_frames/")
 
     @property
     def bounds(self) -> Rectangle:
@@ -79,10 +108,24 @@ class Dinosaur:
             self.is_jumping = True
             self.is_ducking = False
             self.vertical_velocity = JUMP_VELOCITY
+            # Play jump sound
+            if "jump" in self.sounds:
+                self.sounds["jump"].play()
 
     def update(self, dt: float, keys: pygame.key.ScancodeWrapper) -> None:
         # Duck only when on ground
         self.is_ducking = bool(keys[pygame.K_DOWN]) and not self.is_jumping
+
+        # Play running sound if on ground and not ducking or jumping
+        on_ground = not self.is_jumping and not self.is_ducking
+        if on_ground and "run" in self.sounds:
+            if not self._run_sound_playing:
+                self.sounds["run"].play(-1)  # Loop
+                self._run_sound_playing = True
+        else:
+            if self._run_sound_playing and "run" in self.sounds:
+                self.sounds["run"].stop()
+                self._run_sound_playing = False
 
         # Apply jump physics
         if self.is_jumping:
@@ -95,12 +138,30 @@ class Dinosaur:
                 self.vertical_velocity = 0.0
 
     def draw(self, surface: pygame.Surface) -> None:
-        # Body
-        pygame.draw.rect(surface, FOREGROUND_COLOR, self.bounds.rect, border_radius=4)
-        # Eye (simple)
-        eye_x = int(self.bounds.x + self.bounds.width * 0.7)
-        eye_y = int(self.bounds.y + self.bounds.height * 0.25)
-        pygame.draw.rect(surface, BACKGROUND_COLOR, pygame.Rect(eye_x, eye_y, 3, 3))
+        # Animate
+        self.frame_timer += 1 / FPS
+        if self.frame_timer >= self.frame_interval:
+            self.frame_timer = 0.0
+            self.frame_idx = (self.frame_idx + 1) % len(self.frames)
+        w, h = int(self.bounds.width), int(self.bounds.height)
+        sprite = pygame.transform.smoothscale(self.frames[self.frame_idx], (w, h))
+
+        # Draw drop shadow
+        shadow = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, 60), (w*0.08, h*0.82, w*0.85, h*0.22))
+        surface.blit(shadow, (int(self.bounds.x), int(self.bounds.y) + int(h*0.12)))
+
+        # Draw white outline (stroke)
+        outline = pygame.Surface((w+6, h+6), pygame.SRCALPHA)
+        outline.blit(sprite, (3, 3))
+        mask = pygame.mask.from_surface(sprite)
+        outline_mask = mask.outline()
+        if outline_mask:
+            pygame.draw.polygon(outline, (255,255,255,220), [(x+3, y+3) for x, y in outline_mask], width=5)
+        surface.blit(outline, (int(self.bounds.x)-3, int(self.bounds.y)-3))
+
+        # Draw dino sprite on top
+        surface.blit(sprite, (int(self.bounds.x), int(self.bounds.y)))
 
 
 class Cactus:
@@ -186,6 +247,7 @@ class Cloud:
 class Game:
     def __init__(self) -> None:
         pygame.init()
+        pygame.mixer.init()
         pygame.display.set_caption("Dino Runner (Python)")
         self.surface = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
         self.clock = pygame.time.Clock()
